@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "sevone-api": {
+      "type": "stdio",
+      "command": "/Users/srikanthchakravarthy/Documents/Projects/github-general/BobAgent-1/sevone-mcp-api/venv/bin/python3",
+      "args": [
+        "src/server.py"
+      ],
+      "cwd": "/Users/srikanthchakravarthy/Documents/Projects/github-general/BobAgent-1/sevone-mcp-api"
+    }
+  }
+}

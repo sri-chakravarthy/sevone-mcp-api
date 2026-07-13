@@ -1,0 +1,10 @@
+# SSE Transport Additional Dependencies
+# Install with: pip install -r requirements-sse.txt
+
+# Base requirements
+-r requirements.txt
+
+# SSE/HTTP Server
+starlette>=0.37.0
+uvicorn>=0.29.0
+sse-starlette>=2.0.0
