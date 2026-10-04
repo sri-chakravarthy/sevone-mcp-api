@@ -50,28 +50,6 @@ Examples:
 - Combined filters: {"alert_severities": ["CRITICAL"], "is_enabled": true, "device_group_id": 10}
 
 Note: Multiple filters can be combined. Policies must match ALL specified criteria.
-
---- Decoding triggerExpression / clearExpression ---
-The response includes triggerExpression and clearExpression strings containing condition IDs.
-Delimiter meaning: comma (,) = AND (all conditions must be met); pipe (|) = OR (any condition met).
-Full condition definitions are in triggerConditions[] / clearConditions[] arrays.
-
-Each condition object fields:
-- id: matches IDs in the expression string
-- indicatorTypeId / indicatorTypeName / indicatorTypeDescription: what is being measured
-- comparison: 0=less-than (<), 1=greater-than (>), 2=equals (=)
-- value / unit: threshold value and unit (e.g. "Percent", "Number")
-- aggregation: 0=last, 1=min, 2=max, 3=avg, 4=sum
-- duration: evaluation window in seconds
-- type: 0=Threshold, 1=Baseline, 2=Sigma
-- sigmaDirection (type=2 only): 0=none, 1=above, 2=below, 3=both
-- message: optional custom message for the condition
-
-Presentation examples:
-- Threshold: "cpu (CPU Time) — max over 300s > 80 Percent"
-- Sigma:     "cpu (CPU Time) — max over 1800s, sigma below threshold"
-- Expression "357,358" → Condition 357 AND Condition 358
-- Expression "357|358" → Condition 357 OR Condition 358
 """
     
     @property

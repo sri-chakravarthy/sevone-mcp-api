@@ -20,6 +20,7 @@ from tools.get_alerting_policy_details import GetAlertingPolicyDetailsTool
 from tools.get_alerting_policy_folder_details import GetAlertingPolicyFolderDetailsTool
 from tools.get_object_details import GetObjectDetailsTool
 from tools.get_indicator_details import GetIndicatorDetailsTool
+from tools.perform_snmp_walk import PerformSnmpWalkTool
 
 # Configure logging
 log_level = os.getenv("LOG_LEVEL", "INFO")
@@ -53,6 +54,8 @@ class SevOneMCPServer:
         self.get_alerting_policy_folder_details_tool = GetAlertingPolicyFolderDetailsTool()
         self.get_object_details_tool = GetObjectDetailsTool()
         self.get_indicator_details_tool = GetIndicatorDetailsTool()
+        self.perform_snmp_walk_tool = PerformSnmpWalkTool()
+
         
         # Register handlers
         self.server.list_tools()(self.list_tools)
@@ -144,7 +147,12 @@ class SevOneMCPServer:
                 name=self.get_indicator_details_tool.name,
                 description=self.get_indicator_details_tool.description,
                 inputSchema=self.get_indicator_details_tool.input_schema
-            )
+            ),
+            Tool(
+                name=self.perform_snmp_walk_tool.name,
+                description=self.perform_snmp_walk_tool.description,
+                inputSchema=self.perform_snmp_walk_tool.input_schema
+            ),
         ]
     
     async def call_tool(self, name: str, arguments: dict) -> list[TextContent]:
@@ -172,6 +180,8 @@ class SevOneMCPServer:
             result = await self.get_object_details_tool.execute(self.api_client, **arguments)
         elif name == self.get_indicator_details_tool.name:
             result = await self.get_indicator_details_tool.execute(self.api_client, **arguments)
+        elif name == self.perform_snmp_walk_tool.name:
+            result = await self.perform_snmp_walk_tool.execute(self.api_client, **arguments)
         else:
             raise ValueError(f"Unknown tool: {name}")
         

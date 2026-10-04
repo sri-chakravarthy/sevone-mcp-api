@@ -1,0 +1,222 @@
+
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>SevOne MCP Server — Architecture Analysis</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", system-ui, sans-serif; font-size: 14px; line-height: 1.6; background: #ffffff; color: #1f2328; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 48px; }
+  h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { color: #57606a; font-size: 0.9rem; margin-bottom: 32px; }
+  h2 { font-size: 1.1rem; font-weight: 700; margin: 32px 0 10px; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; }
+  h3 { font-size: 0.95rem; font-weight: 700; margin: 20px 0 6px; color: #3b82d4; }
+  p { margin-bottom: 10px; }
+  ul, ol { margin: 8px 0 12px 22px; }
+  li { margin-bottom: 4px; }
+  code { background: #f7f8fa; border: 1px solid #e5e7eb; border-radius: 3px; padding: 1px 5px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; }
+  pre { background: #f7f8fa; border: 1px solid #e5e7eb; border-radius: 6px; padding: 14px; margin: 10px 0 14px; overflow-x: auto; font-size: 12px; font-family: "SFMono-Regular", Consolas, monospace; line-height: 1.5; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 16px; font-size: 13px; }
+  th { background: #f7f8fa; text-align: left; padding: 8px 10px; border: 1px solid #e5e7eb; font-weight: 600; }
+  td { padding: 7px 10px; border: 1px solid #e5e7eb; vertical-align: top; }
+  tr:nth-child(even) td { background: #fafbfc; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-right: 4px; }
+  .badge-blue { background: #dbeafe; color: #1d4ed8; }
+  .badge-green { background: #dcfce7; color: #166534; }
+  .badge-orange { background: #ffedd5; color: #9a3412; }
+  .badge-purple { background: #f3e8ff; color: #6b21a8; }
+  .callout { background: #f7f8fa; border-left: 3px solid #3b82d4; padding: 10px 14px; margin: 12px 0; border-radius: 0 6px 6px 0; }
+  .callout.warn { border-left-color: #f59e0b; }
+  .callout.tip { border-left-color: #10b981; }
+  .diagram { background: #f7f8fa; border: 1px solid #e5e7eb; border-radius: 6px; padding: 16px; margin: 12px 0; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; line-height: 1.8; }
+  .section-meta { color: #57606a; font-size: 12px; margin-bottom: 8px; }
+  .stat-row { display: flex; gap: 16px; margin: 10px 0 16px; flex-wrap: wrap; }
+  .stat { background: #f7f8fa; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px 16px; flex: 1; min-width: 130px; }
+  .stat-val { font-size: 1.6rem; font-weight: 700; color: #3b82d4; }
+  .stat-label { font-size: 11px; color: #57606a; margin-top: 2px; }
+  footer { margin-top: 48px; padding-top: 14px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 11px; color: #57606a; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>SevOne MCP Server — Architecture Analysis</h1>
+<p class="subtitle">Technology stack, runtime flow, mode design, and optimisation opportunities</p>
+
+
+<div class="stat-row">
+  <div class="stat"><div class="stat-val">10</div><div class="stat-label">MCP tools exposed</div></div>
+  <div class="stat"><div class="stat-val">3</div><div class="stat-label">Bob custom modes</div></div>
+  <div class="stat"><div class="stat-val">810</div><div class="stat-label">Lines in custom_modes.yaml</div></div>
+  <div class="stat"><div class="stat-val">stdio</div><div class="stat-label">Transport protocol</div></div>
+</div>
+
+
+<h2>1. Technology Stack</h2>
+<p><span class="badge badge-orange">Not FastMCP</span> This server uses the <strong>low-level official MCP Python SDK</strong> (<code>mcp&gt;=0.9.0</code>), not FastMCP.</p>
+
+<table>
+  <tr><th>Layer</th><th>Library / Tool</th><th>Purpose</th></tr>
+  <tr><td>MCP framework</td><td><code>mcp</code> (≥0.9.0) — official SDK</td><td>Protocol handling, tool registration, stdio transport</td></tr>
+  <tr><td>HTTP client</td><td><code>httpx</code> (async)</td><td>All REST calls to SevOne API</td></tr>
+  <tr><td>Credentials</td><td><code>cryptography</code> (Fernet)</td><td>Symmetric AES-128-CBC encrypt/decrypt of password at rest</td></tr>
+  <tr><td>Config</td><td><code>python-dotenv</code></td><td>Loads <code>.env</code> file (hostname, username, encrypted password, key)</td></tr>
+  <tr><td>Transport</td><td>stdio (JSON-RPC over stdin/stdout)</td><td>Bob spawns the server as a child process</td></tr>
+  <tr><td>Runtime</td><td>Python 3.10+ / asyncio</td><td>Single async event loop; all I/O is non-blocking</td></tr>
+</table>
+
+<div class="callout">
+  <strong>FastMCP vs low-level SDK:</strong> FastMCP is a higher-level wrapper that lets you decorate plain Python functions with <code>@mcp.tool()</code> and infer schemas from type hints. This project uses the lower-level <code>mcp.server.Server</code> class directly — which means it wires up <code>list_tools</code> / <code>call_tool</code> handlers manually and defines <code>inputSchema</code> dicts by hand.
+</div>
+
+
+<h2>2. Architecture &amp; Runtime Flow</h2>
+
+<div class="diagram">
+Bob (parent process)
+   │  spawns via .bob/mcp.json (stdio transport)
+   ▼
+venv/bin/python3  src/server.py
+   │
+   ├─ SevOneMCPServer.__init__()
+   │     ├─ mcp.server.Server("sevone-api")
+   │     ├─ instantiates 10 Tool objects (one class per tool file)
+   │     └─ registers list_tools / call_tool handlers
+   │
+   ├─ SevOneMCPServer.initialize()          ← called once at startup
+   │     ├─ CredentialManager              reads .env, decrypts password
+   │     ├─ TokenManager                   stores creds; no network yet
+   │     └─ SevOneAPIClient                wraps TokenManager; no network yet
+   │
+   └─ stdio_server() event loop
+         │
+         │  (Bob calls a tool)
+         ▼
+      call_tool(name, args)
+         ├─ if/elif chain → routes to correct Tool.execute()
+         ├─ Tool.execute() calls api_client.post/get/...
+         │     └─ TokenManager.get_token()   ← lazy; authenticates on first call
+         │           POST /api/v3/users/signin → bearer token (cached 23 h)
+         │           On 401 → invalidate + retry (up to 3×)
+         └─ returns JSON-serialised TextContent to Bob
+</div>
+
+<h3>Authentication model</h3>
+<ul>
+  <li>Password is <strong>Fernet-encrypted at rest</strong> in <code>.env</code>. A separate <code>SEVONE_ENCRYPTION_KEY</code> is needed to decrypt it.</li>
+  <li>Authentication is <strong>deferred</strong> — no network call happens at startup. The first tool invocation triggers a <code>POST /api/v3/users/signin</code>.</li>
+  <li>Token is cached in memory with a 23-hour TTL (5-minute safety buffer before expiry).</li>
+  <li>A 401 response automatically invalidates the token and retries up to 3 times.</li>
+</ul>
+
+<h3>Tool structure pattern</h3>
+<p>Every tool follows the same class shape:</p>
+<pre>class SomeToolName:
+    @property def name(self) -&gt; str          # string tool ID
+    @property def description(self) -&gt; str    # shown to LLM in list_tools
+    @property def input_schema(self) -&gt; dict   # JSON Schema (hand-written)
+    async def execute(self, api_client, **kwargs) -&gt; dict</pre>
+<p>The <code>server.py</code> <code>call_tool()</code> method is a plain <code>if/elif</code> dispatch chain over tool names.</p>
+
+
+<h2>3. Source File Map</h2>
+<table>
+  <tr><th>File</th><th>Role</th></tr>
+  <tr><td><code>src/server.py</code></td><td>Entry point — wires MCP server, registers handlers, runs stdio loop</td></tr>
+  <tr><td><code>src/auth/credentials.py</code></td><td>Loads .env, decrypts password with Fernet</td></tr>
+  <tr><td><code>src/auth/token_manager.py</code></td><td>Bearer token cache, sign-in, auto-refresh</td></tr>
+  <tr><td><code>src/api/client.py</code></td><td>Async HTTP wrapper; injects auth header; handles 401 retry, size limits</td></tr>
+  <tr><td><code>src/tools/*.py</code></td><td>One file per MCP tool (10 tools total)</td></tr>
+  <tr><td><code>.bob/mcp.json</code></td><td>Bob MCP server registration (stdio, venv python3, cwd)</td></tr>
+  <tr><td><code>.bob/custom_modes.yaml</code></td><td>3 Bob modes: sevone-api-expert, sevone-get-details, sevone-admin</td></tr>
+</table>
+
+
+<h2>4. Bob Mode Instructions — Current State &amp; Verbosity Analysis</h2>
+<div class="section-meta">The <code>customInstructions</code> blocks dominate the file. Here is a breakdown:</div>
+
+<table>
+  <tr><th>Mode slug</th><th>Approx. lines of customInstructions</th><th>Character count (est.)</th><th>Primary verbosity driver</th></tr>
+  <tr><td><code>sevone-api-expert</code></td><td>~95</td><td>~3,100</td><td>Numbered step-by-step workflow + two full example walkthroughs</td></tr>
+  <tr><td><code>sevone-get-details</code></td><td>~470</td><td>~14,500</td><td>Inline API-doc for every param of every tool + ~40 example Q→A pairs + condition-decoding legend</td></tr>
+  <tr><td><code>sevone-admin</code></td><td>~140</td><td>~4,300</td><td>Per-task workflow docs + regex cheat-sheet + repeated warnings</td></tr>
+</table>
+
+<div class="callout warn">
+  <strong>The main cost:</strong> <code>sevone-get-details</code> at ~14,500 characters is essentially a re-written version of the MCP tool descriptions that already live in the <code>description</code> properties inside the server itself. Bob loads <em>both</em> sources into context on every turn.
+</div>
+
+
+<h2>5. Optimisation Opportunities</h2>
+
+<h3>5.1 Eliminate redundant documentation in customInstructions</h3>
+<p>The tool descriptions defined in <code>src/tools/*.py</code> (e.g., all parameter descriptions in <code>input_schema</code> plus the <code>description</code> string) are already surfaced to Bob via the MCP <code>list_tools</code> response. <strong>You do not need to repeat them inside <code>customInstructions</code>.</strong></p>
+<div class="callout tip">
+  <strong>Remove from <code>sevone-get-details</code></strong>: the entire "Choose the Right Tool" section (lines 179–318) which re-documents every parameter of every tool. The LLM already sees these from the tool schema. <em>Estimated saving: ~5,000 characters / ~160 lines.</em>
+</div>
+
+<h3>5.2 Collapse example query patterns into a compact lookup table</h3>
+<p>The ~40 "User says X → use tool Y with args Z" examples in <code>sevone-get-details</code> are valuable but excessively verbose. They can be expressed as a compact two-column table:</p>
+<pre># Instead of 40 prose blocks, use a short reference table:
+| Intent keyword        | Tool                        | Key arg                         |
+| find / get device     | get_device_details          | device_names or device_ids      |
+| device group          | get_device_group_details    | device_group_ids or paths       |
+| metadata IDs          | get_device_metadata_ids     | device_ids or namespace+attr    |
+| objects               | get_object_details          | device_id / device_name         |
+| indicators            | get_indicator_details       | device_ids / object_ids         |
+| alert policies        | get_alerting_policy_details | name / alert_severities         |
+| policy folders        | get_alerting_policy_folder  | (no filter needed)              |</pre>
+<div class="callout tip">Estimated saving: ~4,000 characters.</div>
+
+<h3>5.3 Move alerting-policy condition-decoding legend to tool description</h3>
+<p>The AND/OR delimiter legend, comparison/aggregation/type lookup tables, and example decoded sentences (lines 412–444) are decoding instructions for <em>API response data</em>, not mode-routing instructions. They belong in the <code>get_alerting_policy_details</code> tool's <code>description</code> property in <code>src/tools/get_alerting_policy_details.py</code>, so they only appear when that tool is actually listed.</p>
+<div class="callout tip">Estimated saving: ~1,200 characters from the mode file.</div>
+
+<h3>5.4 Migrate to FastMCP to eliminate manual boilerplate in server.py</h3>
+<p>The current server.py has ~100 lines of manual wiring (instantiate 10 objects, build <code>Tool()</code> list, <code>if/elif</code> dispatch). With FastMCP the same is achieved with a decorator per function:</p>
+<pre># FastMCP equivalent — entire server.py collapses to ~30 lines
+from fastmcp import FastMCP
+
+mcp = FastMCP("sevone-api")
+
+@mcp.tool()
+async def get_device_details(
+    device_names: list[str] | None = None,
+    device_ids: list[int] | None = None,
+    ...
+) -&gt; dict:
+    """Get device details from SevOne. ..."""
+    return await _get_device_details_impl(api_client, ...)
+</pre>
+<p>FastMCP infers the <code>inputSchema</code> directly from Python type annotations, eliminating the hand-written JSON Schema dicts in every tool file.</p>
+
+<h3>5.5 Merge sevone-api-expert into sevone-get-details</h3>
+<p>The <code>sevone-api-expert</code> mode is a general-purpose "read Swagger and call run_api_endpoint" mode. In practice it overlaps heavily with <code>sevone-get-details</code>. Consider keeping only two modes:</p>
+<table>
+  <tr><th>Proposed mode</th><th>Coverage</th></tr>
+  <tr><td><code>sevone-get-details</code> (query)</td><td>All read/query operations via typed tools + raw run_api_endpoint fallback</td></tr>
+  <tr><td><code>sevone-admin</code> (write)</td><td>All create/mutate operations</td></tr>
+</table>
+<div class="callout tip">Eliminates one full mode definition (~120 lines).</div>
+
+<h3>5.6 Remove the "Common Query Patterns" prose duplication in sevone-get-details</h3>
+<p>The "Tips" block and the "Device/Object/Metadata/Policy Information Includes" sections at the bottom of <code>sevone-get-details</code> (lines 568–640) largely repeat what is in <code>roleDefinition</code> and <code>whenToUse</code>. Bob already reads all three fields. These can be cut to a single sentence each.</p>
+<div class="callout tip">Estimated saving: ~1,800 characters.</div>
+
+
+<h2>6. Optimisation Summary</h2>
+<table>
+  <tr><th>#</th><th>Change</th><th>Effort</th><th>Est. token saving</th></tr>
+  <tr><td>1</td><td>Remove per-parameter docs from <code>customInstructions</code> (already in tool schema)</td><td>Low — delete lines</td><td>~1,200 tokens</td></tr>
+  <tr><td>2</td><td>Compress 40 example Q→A blocks to a compact routing table</td><td>Low — rewrite</td><td>~1,000 tokens</td></tr>
+  <tr><td>3</td><td>Move condition-decoding legend into tool description</td><td>Low — move text</td><td>~300 tokens</td></tr>
+  <tr><td>4</td><td>Remove duplicate "Tips" and "Includes" sections at end of sevone-get-details</td><td>Low — delete lines</td><td>~450 tokens</td></tr>
+  <tr><td>5</td><td>Merge sevone-api-expert into sevone-get-details</td><td>Medium — redesign</td><td>~750 tokens</td></tr>
+  <tr><td>6</td><td>Migrate server to FastMCP (remove hand-written boilerplate)</td><td>High — code change</td><td>No LLM saving; reduces server maintenance burden</td></tr>
+</table>
+<p><strong>Conservative combined saving from items 1–5:</strong> ~3,700 tokens loaded per Bob turn — roughly a <strong>40–45% reduction</strong> in mode instruction overhead.</p>
+
+<footer>Made with IBM Bob</footer>
+</div>
+</body>
+</html>

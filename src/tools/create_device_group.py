@@ -127,7 +127,7 @@ Note: If both parent_id and parent_path are provided, parent_id takes precedence
             # Make the API call
             response = await api_client.post(
                 endpoint="/api/v3/devicegroups",
-                data=request_body
+                json_data=request_body
             )
             
             # Extract the response data

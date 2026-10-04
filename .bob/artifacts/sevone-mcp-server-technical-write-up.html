@@ -1,0 +1,162 @@
+
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SevOne MCP Server — Technical Write-Up</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    color: #1f2328;
+    background: #ffffff;
+    padding: 40px 24px 60px;
+  }
+  article {
+    max-width: 760px;
+    margin: 0 auto;
+  }
+  header {
+    border-bottom: 2px solid #e5e7eb;
+    padding-bottom: 20px;
+    margin-bottom: 32px;
+  }
+  h1 {
+    font-size: 22px;
+    font-weight: 700;
+    color: #1f2328;
+    letter-spacing: -0.3px;
+    margin-bottom: 6px;
+  }
+  .subtitle {
+    font-size: 13px;
+    color: #57606a;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+  h2 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #3b82d4;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin: 28px 0 10px;
+  }
+  p {
+    margin-bottom: 14px;
+    color: #1f2328;
+  }
+  code {
+    font-family: "SF Mono", "Fira Code", Consolas, monospace;
+    font-size: 13px;
+    background: #f7f8fa;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: #7c5cd8;
+  }
+  .tool-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin: 10px 0 18px;
+  }
+  .tool-item {
+    background: #f7f8fa;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 10px 14px;
+  }
+  .tool-item .name {
+    font-weight: 600;
+    font-size: 13px;
+    color: #7c5cd8;
+    font-family: "SF Mono", "Fira Code", Consolas, monospace;
+  }
+  .tool-item .desc {
+    font-size: 13px;
+    color: #57606a;
+    margin-top: 2px;
+  }
+  .arch-block {
+    background: #f7f8fa;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 14px 18px;
+    font-family: "SF Mono", "Fira Code", Consolas, monospace;
+    font-size: 12.5px;
+    color: #1f2328;
+    line-height: 1.8;
+    margin-bottom: 18px;
+  }
+  .arch-block .arrow { color: #57606a; }
+  .arch-block .highlight { color: #3b82d4; font-weight: 600; }
+  footer {
+    margin-top: 48px;
+    padding-top: 16px;
+    border-top: 1px solid #e5e7eb;
+    text-align: center;
+    font-size: 12px;
+    color: #57606a;
+  }
+</style>
+</head>
+<body>
+<article>
+
+  <header>
+    <div class="subtitle">Technical Write-Up  ·  Open Source Project</div>
+    <h1>SevOne MCP Server: Bridging AI Agents and Network Observability</h1>
+  </header>
+
+  <h2>Overview</h2>
+  <p>
+    The <strong>SevOne MCP Server</strong> is an open-source Python project that connects AI agents — specifically IBM's Bob AI — to SevOne Network Management System (NMS) through the Model Context Protocol (MCP). It transforms natural-language queries from an AI agent into authenticated, structured REST API calls against a live SevOne environment, and returns structured JSON results ready for reasoning and summarisation.
+  </p>
+
+  <h2>Problem It Solves</h2>
+  <p>
+    Network operations teams routinely query observability platforms — checking device health, reviewing alerting policies, inspecting performance indicators — but doing so requires navigating complex REST APIs with bearer-token authentication, multi-level filter schemas, and pagination. This project abstracts all of that into a clean MCP tool layer, letting an AI agent handle network queries in plain English without exposing API complexity to the end user.
+  </p>
+
+  <h2>Architecture</h2>
+  <div class="arch-block">
+    <span class="highlight">Bob AI Agent</span> <span class="arrow">→</span> MCP Protocol (stdio / SSE) <span class="arrow">→</span> <span class="highlight">SevOne MCP Server</span><br />
+        ├── Auth Layer   (Fernet-encrypted credentials, auto token refresh)<br />
+        ├── API Client  (async HTTPS to SevOne REST API)<br />
+        └── Tool Layer  (10 domain-specific MCP tools)<br />
+    <span class="arrow">→</span> <span class="highlight">SevOne NMS</span>
+  </div>
+  <p>
+    The server ships with two transports — <code>stdio</code> for local agent integration and Server-Sent Events (<code>SSE</code>) for remote HTTP deployments — making it suitable for both desktop and production environments.
+  </p>
+
+  <h2>Key Technical Features</h2>
+  <p>
+    Credentials are encrypted at rest using <strong>Fernet symmetric encryption</strong>. Bearer tokens are acquired on first use and silently refreshed on expiry, so no tool call ever exposes raw passwords. All I/O is fully asynchronous (<code>async/await</code>), keeping the server non-blocking under concurrent requests.
+  </p>
+
+  <p>The tool layer covers ten domain-specific operations:</p>
+  <div class="tool-grid">
+    <div class="tool-item"><div class="name">get_device_details</div><div class="desc">Devices by name, ID, or group</div></div>
+    <div class="tool-item"><div class="name">get_object_details</div><div class="desc">Monitored objects per device</div></div>
+    <div class="tool-item"><div class="name">get_indicator_details</div><div class="desc">Performance indicator data</div></div>
+    <div class="tool-item"><div class="name">get_alerting_policy_details</div><div class="desc">Alert policies by severity</div></div>
+    <div class="tool-item"><div class="name">get_device_metadata_ids</div><div class="desc">Namespace and attribute IDs</div></div>
+    <div class="tool-item"><div class="name">create_device_group</div><div class="desc">Hierarchical group creation</div></div>
+    <div class="tool-item"><div class="name">add_devicegroup_rules</div><div class="desc">Automated device classification</div></div>
+    <div class="tool-item"><div class="name">run_api_endpoint</div><div class="desc">Generic pass-through for any endpoint</div></div>
+  </div>
+
+  <h2>Impact</h2>
+  <p>
+    By exposing SevOne's capabilities as MCP tools, the project enables AI-driven network operations without custom scripting per query. An operator can ask <em>"Show me all critical alerting policies for the West Coast device group"</em> and receive a structured, actionable answer — backed by live data — in seconds. The architecture is extensible: adding a new SevOne endpoint requires only a new tool module and a single registration line in the server.
+  </p>
+
+  <footer>Made with IBM Bob</footer>
+
+</article>
+</body>
+</html>
